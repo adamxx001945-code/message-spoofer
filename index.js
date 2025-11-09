@@ -1,31 +1,22 @@
-/**
- * @name Message Spoofer
- * @description Client-side message text replacer for Discord with persistence
- * @version 1.2.0
- * @author You
- */
-
-const { storage } = vendetta;
-const { plugin } = vendetta.metro.common;
-const { React } = vendetta.metro.common;
-const { findByProps } = vendetta.metro;
-const { before, after } = vendetta.patcher;
-
-let unpatch;
 const STORAGE_KEY = 'discordMessageSpoofs';
+
+let spoofMap = {};
+let observer = null;
 
 // Load spoofs from storage
 const loadSpoofs = () => {
     try {
-        return JSON.parse(storage.get(STORAGE_KEY) || '{}');
+        const stored = vendetta.storage.get(STORAGE_KEY);
+        return stored ? JSON.parse(stored) : {};
     } catch (err) {
         console.warn('[MessageSpoofer] Failed to parse stored spoof data', err);
         return {};
     }
 };
 
-const saveSpoofs = (map) => storage.set(STORAGE_KEY, JSON.stringify(map));
-let spoofMap = loadSpoofs();
+const saveSpoofs = (map) => {
+    vendetta.storage.set(STORAGE_KEY, JSON.stringify(map));
+};
 
 // Message spoofing functions
 function spoofMessage(messageId, replacementText, record = true) {
@@ -91,7 +82,7 @@ function applyAllSpoofs() {
 }
 
 function setupObservers() {
-    const observer = new MutationObserver((mutations) => {
+    const obs = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
             mutation.addedNodes.forEach((node) => {
                 if (node.nodeType !== Node.ELEMENT_NODE) return;
@@ -105,22 +96,19 @@ function setupObservers() {
         }
     });
 
-    observer.observe(document.body, {
+    obs.observe(document.body, {
         childList: true,
         subtree: true,
     });
 
-    return observer;
+    return obs;
 }
-
-let observer;
 
 export default {
     onLoad: () => {
-        // Initialize observer
+        spoofMap = loadSpoofs();
         observer = setupObservers();
         
-        // Apply stored spoofs
         if (document.readyState === 'complete' || document.readyState === 'interactive') {
             applyAllSpoofs();
         } else {
@@ -131,12 +119,10 @@ export default {
     },
 
     onUnload: () => {
-        // Disconnect observer
         if (observer) {
             observer.disconnect();
         }
 
-        // Restore all spoofed messages
         Object.keys(spoofMap).forEach((id) => {
             restoreMessage(id, false);
         });
@@ -145,8 +131,8 @@ export default {
     },
 
     settings: {
-        // UI for managing spoofs
         MessageSpooferSettings: () => {
+            const { React } = vendetta.metro.common;
             const [messageId, setMessageId] = React.useState('');
             const [replacementText, setReplacementText] = React.useState('');
             const [status, setStatus] = React.useState('');
@@ -169,48 +155,38 @@ export default {
                 setStatus(result.success ? `✅ ${result.message}` : `❌ ${result.message}`);
             };
 
-            return (
-                <div style={{ padding: '16px' }}>
-                    <h2 style={{ marginBottom: '12px', fontSize: '18px', fontWeight: '600' }}>
-                        Message Spoofer
-                    </h2>
-                    
-                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12px', textTransform: 'uppercase' }}>
-                        Message ID
-                    </label>
-                    <input
-                        type="text"
-                        placeholder="1234567890123456789"
-                        value={messageId}
-                        onChange={(e) => setMessageId(e.target.value)}
-                        style={{ width: '100%', marginBottom: '10px', padding: '10px', borderRadius: '8px' }}
-                    />
+            return React.createElement('div', { style: { padding: '16px' } },
+                React.createElement('h2', { style: { marginBottom: '12px', fontSize: '18px', fontWeight: '600' } }, 'Message Spoofer'),
+                
+                React.createElement('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', textTransform: 'uppercase' } }, 'Message ID'),
+                React.createElement('input', {
+                    type: 'text',
+                    placeholder: '1234567890123456789',
+                    value: messageId,
+                    onChange: (e) => setMessageId(e.target.value),
+                    style: { width: '100%', marginBottom: '10px', padding: '10px', borderRadius: '8px' }
+                }),
 
-                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '12px', textTransform: 'uppercase' }}>
-                        Replacement Text
-                    </label>
-                    <textarea
-                        placeholder="What should the message show?"
-                        value={replacementText}
-                        onChange={(e) => setReplacementText(e.target.value)}
-                        style={{ width: '100%', marginBottom: '10px', padding: '10px', borderRadius: '8px', minHeight: '96px' }}
-                    />
+                React.createElement('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', textTransform: 'uppercase' } }, 'Replacement Text'),
+                React.createElement('textarea', {
+                    placeholder: 'What should the message show?',
+                    value: replacementText,
+                    onChange: (e) => setReplacementText(e.target.value),
+                    style: { width: '100%', marginBottom: '10px', padding: '10px', borderRadius: '8px', minHeight: '96px' }
+                }),
 
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                        <button onClick={handleApply} style={{ flex: 1, padding: '10px', borderRadius: '8px', background: '#5865f2', color: '#fff' }}>
-                            Apply
-                        </button>
-                        <button onClick={handleReset} style={{ flex: 1, padding: '10px', borderRadius: '8px', background: '#d83c3e', color: '#fff' }}>
-                            Reset
-                        </button>
-                    </div>
+                React.createElement('div', { style: { display: 'flex', gap: '8px', marginBottom: '10px' } },
+                    React.createElement('button', {
+                        onClick: handleApply,
+                        style: { flex: 1, padding: '10px', borderRadius: '8px', background: '#5865f2', color: '#fff', border: 'none', cursor: 'pointer' }
+                    }, 'Apply'),
+                    React.createElement('button', {
+                        onClick: handleReset,
+                        style: { flex: 1, padding: '10px', borderRadius: '8px', background: '#d83c3e', color: '#fff', border: 'none', cursor: 'pointer' }
+                    }, 'Reset')
+                ),
 
-                    {status && (
-                        <div style={{ marginTop: '10px', fontSize: '12px' }}>
-                            {status}
-                        </div>
-                    )}
-                </div>
+                status && React.createElement('div', { style: { marginTop: '10px', fontSize: '12px' } }, status)
             );
         }
     }
