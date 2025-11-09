@@ -12,3 +12,17 @@
     "icon": "MessageSquareIcon"
   }
 }
+```
+
+### 3. **Check for typos:**
+In Kettu, are you pasting **exactly** this URL?
+```
+https://adamxx001945-code.github.io/message-spoofer
+```
+
+(No trailing slash, no `/index.js` at the end)
+
+### 4. **Try forcing a cache clear:**
+Add `?v=2` to the end:
+```
+https://adamxx001945-code.github.io/message-spoofer?v=2
