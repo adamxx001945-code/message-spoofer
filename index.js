@@ -1,193 +1,182 @@
-const STORAGE_KEY = 'discordMessageSpoofs';
-
 let spoofMap = {};
 let observer = null;
+let panelOpen = false;
 
-// Load spoofs from storage
-const loadSpoofs = () => {
-    try {
-        const stored = vendetta.storage.get(STORAGE_KEY);
-        return stored ? JSON.parse(stored) : {};
-    } catch (err) {
-        console.warn('[MessageSpoofer] Failed to parse stored spoof data', err);
-        return {};
-    }
-};
-
-const saveSpoofs = (map) => {
-    vendetta.storage.set(STORAGE_KEY, JSON.stringify(map));
-};
-
-// Message spoofing functions
-function spoofMessage(messageId, replacementText, record = true) {
-    const target = document.getElementById(`message-content-${messageId}`);
-    if (!target) {
-        return { success: false, message: 'Message element not found. Make sure the message is visible.' };
-    }
-
-    if (!target.dataset.originalHtml) {
-        target.dataset.originalHtml = target.innerHTML;
-    }
-    target.textContent = replacementText ?? '';
-
-    if (record) {
-        spoofMap[messageId] = replacementText ?? '';
-        saveSpoofs(spoofMap);
-    }
-
-    return { success: true, message: 'Message content replaced (client-side only).' };
-}
-
-function restoreMessage(messageId, forget = true) {
-    const target = document.getElementById(`message-content-${messageId}`);
-    if (!target) {
-        if (forget) {
-            delete spoofMap[messageId];
-            saveSpoofs(spoofMap);
-            return { success: true, message: 'Stored spoof removed.' };
+function createPanel() {
+    const panel = document.createElement('div');
+    panel.id = 'spoofer-panel';
+    panel.style.cssText = `
+        position: fixed;
+        top: 60px;
+        right: 20px;
+        width: 300px;
+        background: rgba(32, 34, 37, 0.98);
+        border-radius: 12px;
+        padding: 16px;
+        z-index: 999999;
+        display: none;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        color: white;
+        font-family: sans-serif;
+    `;
+    
+    panel.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 style="margin: 0; font-size: 16px;">Message Spoofer</h3>
+            <button id="close-panel" style="background: none; border: none; color: white; font-size: 20px; cursor: pointer;">×</button>
+        </div>
+        <input id="msg-id" type="text" placeholder="Message ID" style="width: 100%; padding: 8px; margin-bottom: 8px; border-radius: 6px; border: none; background: rgba(0,0,0,0.3); color: white; box-sizing: border-box;">
+        <textarea id="msg-text" placeholder="Replacement text" style="width: 100%; padding: 8px; margin-bottom: 8px; border-radius: 6px; border: none; background: rgba(0,0,0,0.3); color: white; min-height: 80px; box-sizing: border-box; resize: vertical;"></textarea>
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <button id="apply-btn" style="flex: 1; padding: 10px; border: none; border-radius: 6px; background: #5865f2; color: white; font-weight: bold; cursor: pointer;">Apply</button>
+            <button id="restore-btn" style="flex: 1; padding: 10px; border: none; border-radius: 6px; background: #d83c3e; color: white; font-weight: bold; cursor: pointer;">Restore</button>
+        </div>
+        <div id="status" style="font-size: 12px; color: #43b581; min-height: 16px;"></div>
+    `;
+    
+    document.body.appendChild(panel);
+    
+    document.getElementById('close-panel').onclick = () => {
+        panel.style.display = 'none';
+        panelOpen = false;
+    };
+    
+    document.getElementById('apply-btn').onclick = () => {
+        const id = document.getElementById('msg-id').value.trim();
+        const text = document.getElementById('msg-text').value;
+        const status = document.getElementById('status');
+        
+        if (!id) {
+            status.style.color = '#f04747';
+            status.textContent = 'Please enter a message ID';
+            return;
         }
-        return { success: false, message: 'Cannot find that message anymore.' };
-    }
-
-    if (target.dataset.originalHtml) {
-        target.innerHTML = target.dataset.originalHtml;
-        delete target.dataset.originalHtml;
-    }
-
-    if (forget) {
-        delete spoofMap[messageId];
-        saveSpoofs(spoofMap);
-    }
-
-    return { success: true, message: 'Message restored to original text.' };
-}
-
-function applyStoredSpoofsToNode(node) {
-    if (!node || !node.id) return;
-    const match = node.id.match(/^message-content-(\d+)$/);
-    if (!match) return;
-    const messageId = match[1];
-    if (spoofMap.hasOwnProperty(messageId)) {
-        spoofMessage(messageId, spoofMap[messageId], false);
-    }
-}
-
-function applyAllSpoofs() {
-    Object.keys(spoofMap).forEach((id) => {
-        const target = document.getElementById(`message-content-${id}`);
-        if (target) {
-            spoofMessage(id, spoofMap[id], false);
+        
+        const el = document.getElementById(`message-content-${id}`);
+        if (!el) {
+            status.style.color = '#f04747';
+            status.textContent = 'Message not found. Make sure it\'s visible.';
+            return;
         }
-    });
+        
+        if (!el.dataset.original) {
+            el.dataset.original = el.innerHTML;
+        }
+        el.textContent = text;
+        spoofMap[id] = text;
+        vendetta.storage.set('discordMessageSpoofs', JSON.stringify(spoofMap));
+        
+        status.style.color = '#43b581';
+        status.textContent = 'Message spoofed successfully!';
+    };
+    
+    document.getElementById('restore-btn').onclick = () => {
+        const id = document.getElementById('msg-id').value.trim();
+        const status = document.getElementById('status');
+        
+        if (!id) {
+            status.style.color = '#f04747';
+            status.textContent = 'Please enter a message ID';
+            return;
+        }
+        
+        const el = document.getElementById(`message-content-${id}`);
+        if (el && el.dataset.original) {
+            el.innerHTML = el.dataset.original;
+            delete el.dataset.original;
+        }
+        
+        delete spoofMap[id];
+        vendetta.storage.set('discordMessageSpoofs', JSON.stringify(spoofMap));
+        
+        status.style.color = '#43b581';
+        status.textContent = 'Message restored!';
+    };
+    
+    return panel;
 }
 
-function setupObservers() {
-    const obs = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-            mutation.addedNodes.forEach((node) => {
-                if (node.nodeType !== Node.ELEMENT_NODE) return;
-
-                applyStoredSpoofsToNode(node);
-
-                node.querySelectorAll?.('[id^="message-content-"]').forEach((el) => {
-                    applyStoredSpoofsToNode(el);
-                });
-            });
+function createFloatingButton() {
+    const btn = document.createElement('button');
+    btn.id = 'spoofer-btn';
+    btn.textContent = '🎭';
+    btn.style.cssText = `
+        position: fixed;
+        bottom: 80px;
+        right: 20px;
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background: #5865f2;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        z-index: 999998;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    `;
+    
+    btn.onclick = () => {
+        const panel = document.getElementById('spoofer-panel');
+        if (panel) {
+            panel.style.display = panelOpen ? 'none' : 'block';
+            panelOpen = !panelOpen;
         }
-    });
-
-    obs.observe(document.body, {
-        childList: true,
-        subtree: true,
-    });
-
-    return obs;
+    };
+    
+    document.body.appendChild(btn);
 }
 
 export default {
-    onLoad: () => {
-        spoofMap = loadSpoofs();
-        observer = setupObservers();
+    onLoad() {
+        console.log("Message Spoofer loaded!");
         
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
-            applyAllSpoofs();
-        } else {
-            document.addEventListener('DOMContentLoaded', applyAllSpoofs, { once: true });
+        // Load saved spoofs
+        try {
+            const stored = vendetta.storage.get('discordMessageSpoofs');
+            if (stored) {
+                spoofMap = JSON.parse(stored);
+            }
+        } catch (e) {
+            console.error("Failed to load spoofs:", e);
         }
-
-        console.log('[MessageSpoofer] Plugin loaded');
+        
+        // Create UI
+        setTimeout(() => {
+            createPanel();
+            createFloatingButton();
+        }, 1000);
+        
+        // Apply saved spoofs
+        const applyAllSpoofs = () => {
+            Object.keys(spoofMap).forEach(id => {
+                const el = document.getElementById(`message-content-${id}`);
+                if (el && el.textContent !== spoofMap[id]) {
+                    if (!el.dataset.original) {
+                        el.dataset.original = el.innerHTML;
+                    }
+                    el.textContent = spoofMap[id];
+                }
+            });
+        };
+        
+        // Initial apply
+        setTimeout(applyAllSpoofs, 1500);
+        
+        // Watch for new messages
+        observer = new MutationObserver(applyAllSpoofs);
+        observer.observe(document.body, { childList: true, subtree: true });
     },
-
-    onUnload: () => {
+    
+    onUnload() {
         if (observer) {
             observer.disconnect();
         }
-
-        Object.keys(spoofMap).forEach((id) => {
-            restoreMessage(id, false);
-        });
-
-        console.log('[MessageSpoofer] Plugin unloaded');
-    },
-
-    settings: {
-        MessageSpooferSettings: () => {
-            const { React } = vendetta.metro.common;
-            const [messageId, setMessageId] = React.useState('');
-            const [replacementText, setReplacementText] = React.useState('');
-            const [status, setStatus] = React.useState('');
-
-            const handleApply = () => {
-                if (!messageId.trim()) {
-                    setStatus('❌ Please supply a message ID.');
-                    return;
-                }
-                const result = spoofMessage(messageId.trim(), replacementText);
-                setStatus(result.success ? `✅ ${result.message}` : `❌ ${result.message}`);
-            };
-
-            const handleReset = () => {
-                if (!messageId.trim()) {
-                    setStatus('❌ Need a message ID to reset.');
-                    return;
-                }
-                const result = restoreMessage(messageId.trim());
-                setStatus(result.success ? `✅ ${result.message}` : `❌ ${result.message}`);
-            };
-
-            return React.createElement('div', { style: { padding: '16px' } },
-                React.createElement('h2', { style: { marginBottom: '12px', fontSize: '18px', fontWeight: '600' } }, 'Message Spoofer'),
-                
-                React.createElement('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', textTransform: 'uppercase' } }, 'Message ID'),
-                React.createElement('input', {
-                    type: 'text',
-                    placeholder: '1234567890123456789',
-                    value: messageId,
-                    onChange: (e) => setMessageId(e.target.value),
-                    style: { width: '100%', marginBottom: '10px', padding: '10px', borderRadius: '8px' }
-                }),
-
-                React.createElement('label', { style: { display: 'block', marginBottom: '6px', fontSize: '12px', textTransform: 'uppercase' } }, 'Replacement Text'),
-                React.createElement('textarea', {
-                    placeholder: 'What should the message show?',
-                    value: replacementText,
-                    onChange: (e) => setReplacementText(e.target.value),
-                    style: { width: '100%', marginBottom: '10px', padding: '10px', borderRadius: '8px', minHeight: '96px' }
-                }),
-
-                React.createElement('div', { style: { display: 'flex', gap: '8px', marginBottom: '10px' } },
-                    React.createElement('button', {
-                        onClick: handleApply,
-                        style: { flex: 1, padding: '10px', borderRadius: '8px', background: '#5865f2', color: '#fff', border: 'none', cursor: 'pointer' }
-                    }, 'Apply'),
-                    React.createElement('button', {
-                        onClick: handleReset,
-                        style: { flex: 1, padding: '10px', borderRadius: '8px', background: '#d83c3e', color: '#fff', border: 'none', cursor: 'pointer' }
-                    }, 'Reset')
-                ),
-
-                status && React.createElement('div', { style: { marginTop: '10px', fontSize: '12px' } }, status)
-            );
-        }
+        
+        const panel = document.getElementById('spoofer-panel');
+        const btn = document.getElementById('spoofer-btn');
+        if (panel) panel.remove();
+        if (btn) btn.remove();
+        
+        console.log("Message Spoofer unloaded");
     }
 };
